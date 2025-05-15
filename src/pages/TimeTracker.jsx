@@ -2,13 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
 const TimeTracker = ({ user }) => {
-  const [log, setLog] = useState(null);
   const [entries, setEntries] = useState([]);
   const [status, setStatus] = useState('idle');
   const [loginTime, setLoginTime] = useState(null);
+  const [activeLog, setActiveLog] = useState(null);
   const [totalHours, setTotalHours] = useState(null);
-
-  const today = new Date().toISOString().slice(0, 10);
 
   const fetchLogs = async () => {
     const { data } = await supabase
@@ -19,10 +17,12 @@ const TimeTracker = ({ user }) => {
 
     if (data) {
       setEntries(data);
-      const todayLog = data.find((entry) => entry.date === today);
-      if (todayLog) {
-        setLog(todayLog);
-        setStatus(todayLog.clock_out ? 'completed' : 'clocked_in');
+      const openLog = data.find((entry) => !entry.clock_out);
+      if (openLog) {
+        setActiveLog(openLog);
+        setStatus('clocked_in');
+      } else {
+        setStatus('idle');
       }
     }
   };
@@ -33,12 +33,14 @@ const TimeTracker = ({ user }) => {
   }, []);
 
   const handleTimeIn = async () => {
-    const time = new Date().toTimeString().slice(0, 5);
+    const now = new Date();
+    const date = now.toISOString().slice(0, 10);
+    const time = now.toTimeString().slice(0, 5);
 
     const { error } = await supabase.from('time_logs').insert([
       {
         user_id: user.id,
-        date: today,
+        date,
         clock_in: time,
       },
     ]);
@@ -51,19 +53,19 @@ const TimeTracker = ({ user }) => {
 
   const handleTimeOut = async () => {
     const time = new Date().toTimeString().slice(0, 5);
-    const start = new Date(`1970-01-01T${log.clock_in}`);
+    const start = new Date(`1970-01-01T${activeLog.clock_in}`);
     const end = new Date(`1970-01-01T${time}`);
     const hours = ((end - start) / (1000 * 60 * 60)).toFixed(2);
 
     const { error } = await supabase
       .from('time_logs')
       .update({ clock_out: time, hours })
-      .eq('id', log.id);
+      .eq('id', activeLog.id);
 
     if (!error) {
-      fetchLogs();
       setTotalHours(hours);
-      setStatus('completed');
+      fetchLogs();
+      setStatus('idle');
     }
   };
 
@@ -72,7 +74,7 @@ const TimeTracker = ({ user }) => {
       <div className="bg-white shadow-md p-4 rounded">
         <h2 className="text-xl font-bold mb-2">Welcome, {user.email}</h2>
         <p>Login time: {loginTime}</p>
-        <p>Status: {status === 'idle' ? 'Not clocked in yet' : status === 'clocked_in' ? 'Working' : 'Finished'}</p>
+        <p>Status: {status === 'idle' ? 'Ready to log' : 'Working session in progress'}</p>
 
         {status === 'idle' && (
           <button onClick={handleTimeIn} className="bg-green-500 text-white px-4 py-2 rounded mt-4">
@@ -86,10 +88,9 @@ const TimeTracker = ({ user }) => {
           </button>
         )}
 
-        {status === 'completed' && totalHours && (
+        {status === 'idle' && totalHours && (
           <div className="mt-4 text-green-600">
-            <p>You worked {totalHours} hours today.</p>
-            <p className="text-sm text-gray-500">⏳ Reset will be available on the next day.</p>
+            <p>You worked {totalHours} hours in your last session.</p>
           </div>
         )}
       </div>
